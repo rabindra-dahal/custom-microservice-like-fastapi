@@ -1,7 +1,31 @@
 import uvicorn
 from .framework import CustomMicroFramework
+import asyncio # Standard library to allow us to simulate async delays
+
 
 app = CustomMicroFramework()
+
+# Test Route 1: Normal GET request reading URL params
+@app.get("/hello")
+def say_hello(params, body):
+    user_name = params.get('name', 'Guest')
+    return {"message": f"Hello, {user_name}!"}
+
+# Test Route 2: POST request reading JSON inputs
+@app.post("/create-user")
+def register_user(params, body):
+    username = body.get("username", "unknown_user")
+    user_age = body.get("age", 0)
+    return {
+        "status": "Account created successfully",
+        "saved_profile": {"username": username, "age": user_age}
+    }
+
+# Test Route 3: Broken route to test the Error Catcher
+@app.get("/broken")
+def break_things(params, body):
+    result = 10 / 0 
+    return {"result": result}
 
 # Mock Database list
 users_db = {
@@ -42,6 +66,28 @@ def delete_user(params, body):
         deleted_profile = users_db.pop(user_id)
         return {"method_used": "DELETE", "status": "Removed", "profile": deleted_profile}
     return {"error": "User ID not found"}
+
+#--------------------------------------------------
+# Asynchronous vs Synchronous Route Examples
+#-------------------------------------------------- 
+
+# 1. Standard Synchronous Route (Normal function)
+@app.get("/sync-data")
+def get_sync_data(params, body):
+    return {"mode": "synchronous", "message": "Fast response"}
+
+# 2. Upgraded Asynchronous Route (Uses async def!)
+@app.get("/async-data")
+async def get_async_data(params, body):
+    # Simulate a non-blocking database call or external API request fetch
+    print("⏳ Starting background simulation wait...")
+    await asyncio.sleep(2) # Pauses this request for 2 seconds without stopping the server!
+    print("✅ Wait complete!")
+    
+    return {
+        "mode": "asynchronous", 
+        "message": "Data retrieved smoothly after 2 seconds"
+    }
 
 if __name__ == "__main__":
     uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)
