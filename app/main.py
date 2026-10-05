@@ -1,9 +1,37 @@
 import uvicorn
 from .framework import CustomMicroFramework
 import asyncio # Standard library to allow us to simulate async delays
+import time # Standard library to measure performance of requests
 
 
 app = CustomMicroFramework()
+
+# 🛡️ Global Security Middleware Interceptor
+@app.middleware()
+async def add_security_headers(scope, call_next):
+    # --- BEFORE ROUTE EXECUTES ---
+    start_time = time.time()
+    
+    # Pass control down to the next middleware or the core router endpoint
+    status, headers, response_bytes = await call_next(scope)
+    
+    # --- AFTER ROUTE EXECUTES (Response Interception) ---
+    # Append modern production security headers to the outgoing list
+    headers.append((b'x-frame-options', b'DENY'))                          # Prevents clickjacking attacks
+    headers.append((b'x-content-type-options', b'nosniff'))                # Forces browser to adhere to content-type
+    headers.append((b'x-xss-protection', b'1; mode=block'))                # Blocks XSS script loading cross-site
+    headers.append((b'strict-transport-security', b'max-age=31536000'))    # Enforces strict HTTPS usage
+    
+    duration = (time.time() - start_time) * 1000
+    print(f"⏱️ [PERFORMANCE LOG] Request processed in {duration:.2f}ms")
+    
+    return status, headers, response_bytes
+
+# Simple endpoint to test the framework output
+@app.get("/secure-data")
+def get_secure_data(params, body):
+    return {"status": "success", "message": "Check your network headers! They are now locked down."}
+
 
 # Test Route 1: Normal GET request reading URL params
 @app.get("/hello")
