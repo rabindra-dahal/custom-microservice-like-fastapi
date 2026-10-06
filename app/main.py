@@ -6,6 +6,24 @@ import time # Standard library to measure performance of requests
 
 app = CustomMicroFramework()
 
+# Create a clean domain exception for the business logic
+class UserNotFoundError(Exception):
+    def __init__(self, message="Target account does not exist"):
+        self.message = message
+        super().__init__(self.message)
+
+# 🛠️ 1. Register Exception Catcher for UserNotFoundError
+@app.exception_handler(UserNotFoundError)
+def handle_user_missing(error):
+    # Custom error handlers return a tuple: (HTTP_STATUS_CODE, JSON_DICTIONARY)
+    return 404, {"error": "Not Found", "message": str(error)}
+
+# 🛠️ 2. Register Exception Catcher for standard Python ValueErrors
+@app.exception_handler(ValueError)
+def handle_invalid_value(error):
+    return 400, {"error": "Bad Request", "message": f"Validation Error: {str(error)}"}
+
+
 # 🛡️ Global Security Middleware Interceptor
 @app.middleware()
 async def add_security_headers(scope, call_next):
@@ -116,6 +134,28 @@ async def get_async_data(params, body):
         "mode": "asynchronous", 
         "message": "Data retrieved smoothly after 2 seconds"
     }
+
+# --- ROUTES FOR TESTING ---
+
+# Simulated database check that crashes intentionally if ID is out of range
+@app.get("/find-user")
+def find_user(params, body):
+    user_id = params.get("id", "")
+    
+    if user_id == "99":
+        raise UserNotFoundError("User account #99 has been deactivated or never existed.")
+        
+    return {"status": "success", "user_id": user_id}
+
+# Route that forces a standard python system validation ValueError crash
+@app.get("/parse-age")
+def parse_age(params, body):
+    age_str = params.get("age", "")
+    
+    # Int conversion will automatically raise a ValueError if age is not a number (e.g. "abc")
+    age = int(age_str)
+    
+    return {"status": "success", "validated_age": age}
 
 if __name__ == "__main__":
     uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)
