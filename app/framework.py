@@ -7,8 +7,17 @@ class CustomMicroFramework:
         self.routes = {}
         # List to hold registered global middleware functions
         self.middlewares = []
+        # Maps Python Exception classes to custom developer functions
+        # Example layout: {ValueError: handle_value_error_func}
+        self.exception_handlers = {}
 
-    # Decorator to register global middleware functions
+    # Decorator to register custom error handlers for specific Python exceptions
+    def exception_handler(self, exception_class):
+        def decorator(func):
+            self.exception_handlers[exception_class] = func
+            return func
+        return decorator
+
     def middleware(self):
         def decorator(func):
             self.middlewares.append(func)
@@ -38,39 +47,27 @@ class CustomMicroFramework:
 
     # Core ASGI engine called by Uvicorn on every incoming network request
     async def __call__(self, scope, receive, send):
-        # We only intercept standard HTTP requests (ignore lifecycles/websockets for now)
         if scope['type'] != 'http':
             await send({'type': 'http.response.start', 'status': 200, 'headers': []})
             await send({'type': 'http.response.body', 'body': b''})
             return
 
-        # ---------------------------------------------------------------------
-        # MIDDLEWARE EXECUTION CHAIN
-        # ---------------------------------------------------------------------
-        # We construct a chain of responsibility. If middlewares exist, we pass the 
-        # execution down the line. The final step of the chain is our core request handler.
-        
         index = 0
 
         async def call_next(current_scope):
             nonlocal index
             if index < len(self.middlewares):
-                # Select the next middleware in line
                 mw = self.middlewares[index]
                 index += 1
-                # Execute the middleware, handing it the scope and the next step in line
                 if inspect.iscoroutinefunction(mw):
                     return await mw(current_scope, call_next)
                 else:
                     return mw(current_scope, call_next)
             else:
-                # We reached the end of the middleware list! Run the core route logic.
                 return await self._execute_core_route(current_scope, receive)
 
-        # Start executing the chain
         status, headers, response_bytes = await call_next(scope)
 
-        # Send the final packed response back across the network to the client
         await send({
             'type': 'http.response.start',
             'status': status,
@@ -87,8 +84,6 @@ class CustomMicroFramework:
         method = scope.get('method', 'GET').upper()
 
         try:
-            print(f"🖥️ [LOG] Core Router -> Processing Method: {method} | Path: {path}")
-
             # --- 1. PARSE URL QUERY PARAMETERS ---
             raw_query_bytes = scope.get('query_string', b'')
             query_string = raw_query_bytes.decode('utf-8')
@@ -130,10 +125,23 @@ class CustomMicroFramework:
                 status = 405
 
         except Exception as bug:
-            print(f"🚨 [CRITICAL ERROR] A bug occurred: {str(bug)}")
-            response_text = json.dumps({"error": "Internal Server Error", "details": str(bug)})
-            status = 500
+            # Look up if the developer registered a custom catcher for this specific error class
+            error_class = bug.__class__
+            if error_class in self.exception_handlers:
+                handler = self.exception_handlers[error_class]
+                
+                # Execute the custom error handler cleanly
+                if inspect.iscoroutinefunction(handler):
+                    status, raw_response = await handler(bug)
+                else:
+                    status, raw_response = handler(bug)
+                    
+                response_text = json.dumps(raw_response)
+            else:
+                # Fallback standard error response if no handler matches
+                print(f"🚨 [UNHANDLED CRITICAL ERROR] A bug occurred: {str(bug)}")
+                response_text = json.dumps({"error": "Internal Server Error", "details": str(bug)})
+                status = 500
 
-        # Return the components up to the middleware wrapper instead of sending immediately
         headers = [(b'content-type', b'application/json')]
         return status, headers, response_text.encode('utf-8')
