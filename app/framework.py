@@ -11,10 +11,13 @@ class CustomMicroFramework:
         self._middleware_manager = MiddlewareManager()
         self._exception_manager = ExceptionManager()
 
-    # Proxy properties/methods to expose a backward-compatible public interface
     @property
     def routes(self):
-        return self._router.routes
+        # Merge both static and dynamic configurations just for the /docs visual rendering panel
+        merged = dict(self._router.routes)
+        for entry in self._router.dynamic_routes:
+            merged[entry["path_str"]] = entry["methods"]
+        return merged
 
     def route(self, path, method="GET"): return self._router.route(path, method)
     def get(self, path): return self._router.get(path)
@@ -30,21 +33,13 @@ class CustomMicroFramework:
             await send({'type': 'http.response.body', 'body': b''})
             return
 
-        # Fire off the middleware chain with our core router handling the final execution
         status, headers, response_bytes = await self._middleware_manager.execute_chain(
             scope, 
             lambda current_scope: self._execute_core_route(current_scope, receive)
         )
 
-        await send({
-            'type': 'http.response.start',
-            'status': status,
-            'headers': headers,
-        })
-        await send({
-            'type': 'http.response.body',
-            'body': response_bytes,
-        })
+        await send({'type': 'http.response.start', 'status': status, 'headers': headers})
+        await send({'type': 'http.response.body', 'body': response_bytes})
 
     async def _execute_core_route(self, scope, receive):
         path = scope['path']
@@ -57,7 +52,7 @@ class CustomMicroFramework:
                 status = 200
                 content_type = b'text/html; charset=utf-8'
             else:
-                # 1. PARSE URL QUERY PARAMETERS
+                # 1. PARSE QUERY STRINGS
                 raw_query_bytes = scope.get('query_string', b'')
                 query_string = raw_query_bytes.decode('utf-8')
                 query_params = {}
@@ -67,7 +62,7 @@ class CustomMicroFramework:
                             key, value = pair.split('=')
                             query_params[key] = value
 
-                # 2. PARSE JSON BODY PACKETS
+                # 2. PARSE REQUEST BODIES
                 body_data = {}
                 if method in ("POST", "PUT"):
                     body_bytes = b""
@@ -82,18 +77,20 @@ class CustomMicroFramework:
                         except json.JSONDecodeError:
                             body_data = {"error": "Invalid JSON text received"}
 
-                # 3. ROUTE MATCHING & SMART FUNCTION EXECUTION
-                handler_function = self._router.match(path, method)
+                # 3. ROUTE MATCHING WITH PATH PARAMS EXTRACTION
+                handler_function, path_params = self._router.match(path, method)
+                
                 if handler_function:
+                    # Provide path_params as the third argument to endpoints
                     if inspect.iscoroutinefunction(handler_function):
-                        raw_response = await handler_function(query_params, body_data)
+                        raw_response = await handler_function(query_params, body_data, path_params)
                     else:
-                        raw_response = handler_function(query_params, body_data)
+                        raw_response = handler_function(query_params, body_data, path_params)
                     
                     response_text = json.dumps(raw_response) 
                     status = 200
                 else:
-                    response_text = json.dumps({"error": f"Method {method} not allowed on path {path}"})
+                    response_text = json.dumps({"error": f"Method {method} not allowed or missing path matching: {path}"})
                     status = 405
 
         except Exception as bug:
