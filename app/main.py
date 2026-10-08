@@ -157,5 +157,31 @@ def parse_age(params, body):
     
     return {"status": "success", "validated_age": age}
 
+
+# Test Route 1: Simple dynamic route with single argument
+@app.get("/users/{user_id}")
+def get_user_profile(params, body, path_params):
+    """
+    Fetch user summary info using inline route properties.
+    """
+    extracted_id = path_params.get("user_id")
+    return {
+        "message": f"Successfully pulled metadata for profile user #{extracted_id}",
+        "extracted_path_variables": path_params,
+        "additional_queries": params
+    }
+
+# Test Route 2: Advanced complex multi-parameter matching
+@app.get("/stores/{store_id}/items/{item_sku}")
+def get_store_inventory(params, body, path_params):
+    """
+    Locate specific catalog entries across distributed local storage centers.
+    """
+    return {
+        "status": "synchronized",
+        "lookup_parameters": path_params
+    }
+
+
 if __name__ == "__main__":
     uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)
