@@ -4,6 +4,7 @@ from .routing import Router
 from .middleware import MiddlewareManager
 from .exceptions import ExceptionManager
 from .documentation import DocumentationManager
+from .dependencies import Depends
 
 class CustomMicroFramework:
     def __init__(self):
@@ -13,7 +14,6 @@ class CustomMicroFramework:
 
     @property
     def routes(self):
-        # Merge both static and dynamic configurations just for the /docs visual rendering panel
         merged = dict(self._router.routes)
         for entry in self._router.dynamic_routes:
             merged[entry["path_str"]] = entry["methods"]
@@ -77,15 +77,40 @@ class CustomMicroFramework:
                         except json.JSONDecodeError:
                             body_data = {"error": "Invalid JSON text received"}
 
-                # 3. ROUTE MATCHING WITH PATH PARAMS EXTRACTION
+                # 3. ROUTE MATCHING
                 handler_function, path_params = self._router.match(path, method)
                 
                 if handler_function:
-                    # Provide path_params as the third argument to endpoints
-                    if inspect.iscoroutinefunction(handler_function):
-                        raw_response = await handler_function(query_params, body_data, path_params)
+                    # 4. DYNAMIC DEPENDENCY RESOLUTION
+                    # Map positional arguments first to maintain backward compatibility
+                    # Then resolve keyword dependency arguments dynamically via signature analysis
+                    sig = inspect.signature(handler_function)
+                    kwargs = {}
+                    
+                    for param_name, param in sig.parameters.items():
+                        # If a parameter has a default value that is an instance of Depends, resolve it!
+                        if isinstance(param.default, Depends):
+                            dep_callable = param.default.dependency_callable
+                            if inspect.iscoroutinefunction(dep_callable):
+                                kwargs[param_name] = await dep_callable()
+                            else:
+                                kwargs[param_name] = dep_callable()
+
+                    # Execute route handler based on signature requirements
+                    # If it accepts standard legacy positional arguments, send them. 
+                    # Otherwise, rely strictly on dynamic named resolution matching.
+                    param_keys = list(sig.parameters.keys())
+                    if len(param_keys) >= 3 and param_keys[0] == 'params' and param_keys[1] == 'body' and param_keys[2] == 'path_params':
+                        if inspect.iscoroutinefunction(handler_function):
+                            raw_response = await handler_function(query_params, body_data, path_params, **kwargs)
+                        else:
+                            raw_response = handler_function(query_params, body_data, path_params, **kwargs)
                     else:
-                        raw_response = handler_function(query_params, body_data, path_params)
+                        # Fallback for completely modern explicit signatures
+                        if inspect.iscoroutinefunction(handler_function):
+                            raw_response = await handler_function(**kwargs)
+                        else:
+                            raw_response = handler_function(**kwargs)
                     
                     response_text = json.dumps(raw_response) 
                     status = 200

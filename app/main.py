@@ -2,6 +2,8 @@ import uvicorn
 from .framework import CustomMicroFramework
 import asyncio # Standard library to allow us to simulate async delays
 import time # Standard library to measure performance of requests
+from .dependencies import Depends
+
 
 
 app = CustomMicroFramework()
@@ -180,6 +182,56 @@ def get_store_inventory(params, body, path_params):
     return {
         "status": "synchronized",
         "lookup_parameters": path_params
+    }
+
+
+
+
+# Mock Database Connection Pool class
+class DatabaseConnectionPool:
+    def __init__(self):
+        self.state = "connected_to_cluster_v2"
+
+    def fetch_all(self, query):
+        return [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]
+
+# Initialize a global pool instance
+db_pool = DatabaseConnectionPool()
+
+# Dependency Provider function
+def get_db_session():
+    """
+    Simulates checking or resolving a clean pool connection context.
+    """
+    print("[DI Log] Resolving Database connection pool instance...")
+    return db_pool
+
+
+# --- ENDPOINTS USING INJECTED DEPENDENCIES ---
+
+@app.get("/users")
+def list_users(params, body, path_params, db = Depends(get_db_session)):
+    """
+    Fetch system profiles leveraging an isolated, injected database engine.
+    """
+    # Use the injected dependency directly!
+    records = db.fetch_all("SELECT * FROM users")
+    return {
+        "status": "success",
+        "pool_status": db.state,
+        "data": records
+    }
+
+@app.get("/users/{user_id}")
+async def get_single_user(params, body, path_params, db = Depends(get_db_session)):
+    """
+    Pull granular profile targets via the dependency pool layer.
+    """
+    uid = path_params.get("user_id")
+    return {
+        "user_id": uid,
+        "database_reference": id(db),
+        "note": "Dependency resolved successfully!"
     }
 
 
