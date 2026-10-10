@@ -207,6 +207,25 @@ def get_db_session():
     return db_pool
 
 
+# --- DATABASE POOL MOCK ---
+class DatabaseConnection:
+    def __init__(self):
+        self.scope_id = "db_pool_active"
+    def find_user(self, user_name):
+        return {"username": user_name, "role": "admin" if user_name == "admin" else "guest"}
+
+def get_db_session():
+    print("[DI] Resolving Database Session...")
+    return DatabaseConnection()
+
+# --- NESTED SUB-DEPENDENCY ---
+# This dependency requires the database dependency to be resolved first!
+def get_current_user(db = Depends(get_db_session)):
+    print("[DI] Resolving Current User using Injected DB...")
+    # Hardcoded simulation mimicking looking up a credential token
+    return db.find_user("admin")
+
+
 # --- ENDPOINTS USING INJECTED DEPENDENCIES ---
 
 @app.get("/users")
@@ -235,5 +254,48 @@ async def get_single_user(params, body, path_params, db = Depends(get_db_session
     }
 
 
+# --- VERIFICATION ENDPOINTS ---
+
+# 1. Verification of Sub-Dependencies
+@app.get("/secure/dashboard")
+def dashboard(params, body, path_params, current_user = Depends(get_current_user)):
+    """
+    Endpoint protected by a multi-layered sub-dependency tree.
+    """
+    return {
+        "status": "authenticated",
+        "user_profile": current_user
+    }
+
+# 2. Verification of Type Casting (Int and Float)
+@app.get("/items/{item_id:int}/tax/{rate:float}")
+def calculated_item(params, body, path_params):
+    """
+    Verifies automatic route parameter injection and runtime type casting.
+    """
+    item_id = path_params["item_id"]
+    rate = path_params["rate"]
+    
+    return {
+        "raw_path_params": path_params,
+        "item_id_type": str(type(item_id)),
+        "rate_type": str(type(rate)),
+        "computed_math_test": item_id * rate  # Will crash if strings aren't casted correctly!
+    }
+
+
 if __name__ == "__main__":
     uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)
+
+import uvicorn
+from .framework import CustomMicroFramework
+from .dependencies import Depends
+
+app = CustomMicroFramework()
+
+
+
+
+if __name__ == "__main__":
+    uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)
+

@@ -41,6 +41,23 @@ class CustomMicroFramework:
         await send({'type': 'http.response.start', 'status': status, 'headers': headers})
         await send({'type': 'http.response.body', 'body': response_bytes})
 
+    async def _resolve_dependency(self, callable_obj):
+        """
+        Recursively resolves dependencies and sub-dependencies using reflection.
+        """
+        sig = inspect.signature(callable_obj)
+        dep_kwargs = {}
+        
+        for param_name, param in sig.parameters.items():
+            if isinstance(param.default, Depends):
+                nested_callable = param.default.dependency_callable
+                # Recurse downstream to catch nested dependencies
+                dep_kwargs[param_name] = await self._resolve_dependency(nested_callable)
+        
+        if inspect.iscoroutinefunction(callable_obj):
+            return await callable_obj(**dep_kwargs)
+        return callable_obj(**dep_kwargs)
+
     async def _execute_core_route(self, scope, receive):
         path = scope['path']
         method = scope.get('method', 'GET').upper()
@@ -77,28 +94,19 @@ class CustomMicroFramework:
                         except json.JSONDecodeError:
                             body_data = {"error": "Invalid JSON text received"}
 
-                # 3. ROUTE MATCHING
+                # 3. ROUTE MATCHING (NOW WITH CASTED VALUES)
                 handler_function, path_params = self._router.match(path, method)
                 
                 if handler_function:
-                    # 4. DYNAMIC DEPENDENCY RESOLUTION
-                    # Map positional arguments first to maintain backward compatibility
-                    # Then resolve keyword dependency arguments dynamically via signature analysis
+                    # 4. RESOLVE TOP-LEVEL AND SUB-DEPENDENCIES
                     sig = inspect.signature(handler_function)
                     kwargs = {}
                     
                     for param_name, param in sig.parameters.items():
-                        # If a parameter has a default value that is an instance of Depends, resolve it!
                         if isinstance(param.default, Depends):
-                            dep_callable = param.default.dependency_callable
-                            if inspect.iscoroutinefunction(dep_callable):
-                                kwargs[param_name] = await dep_callable()
-                            else:
-                                kwargs[param_name] = dep_callable()
+                            kwargs[param_name] = await self._resolve_dependency(param.default.dependency_callable)
 
-                    # Execute route handler based on signature requirements
-                    # If it accepts standard legacy positional arguments, send them. 
-                    # Otherwise, rely strictly on dynamic named resolution matching.
+                    # 5. EXECUTE ENDPOINT
                     param_keys = list(sig.parameters.keys())
                     if len(param_keys) >= 3 and param_keys[0] == 'params' and param_keys[1] == 'body' and param_keys[2] == 'path_params':
                         if inspect.iscoroutinefunction(handler_function):
@@ -106,7 +114,6 @@ class CustomMicroFramework:
                         else:
                             raw_response = handler_function(query_params, body_data, path_params, **kwargs)
                     else:
-                        # Fallback for completely modern explicit signatures
                         if inspect.iscoroutinefunction(handler_function):
                             raw_response = await handler_function(**kwargs)
                         else:
