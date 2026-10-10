@@ -287,15 +287,4 @@ def calculated_item(params, body, path_params):
 if __name__ == "__main__":
     uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)
 
-import uvicorn
-from .framework import CustomMicroFramework
-from .dependencies import Depends
-
-app = CustomMicroFramework()
-
-
-
-
-if __name__ == "__main__":
-    uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)
 
