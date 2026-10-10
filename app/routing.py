@@ -1,22 +1,40 @@
 import inspect
 import re
 
+TYPE_CASTERS = {
+    "int": (r"\d+", int),
+    "float": (r"\d+(?:\.\d+)?", float),
+    "str": (r"[^/]+", str),
+}
+
 class Router:
     def __init__(self):
-        # Maps raw paths to method handlers for exact/static matches
         self.routes = {}
-        # Compiled list of dynamic path tuples: (regex_compiled_pattern, path_string, methods_dict)
         self.dynamic_routes = []
 
     def route(self, path, method="GET"):
         def decorator(func):
-            # Check if this route has parameters like {id}
             if '{' in path and '}' in path:
-                # Convert path to regex. Example: "/users/{id}" -> r"^/users/(?P<id>[^/]+)$"
-                regex_pattern = re.sub(r'{([^}]+)}', r'(?P<\1>[^/]+)', path)
-                compiled_regex = re.compile(f"^{regex_pattern}$")
+                # Find all parameter markers, e.g., {item_id:int} or {name}
+                # group(1) matches the name, group(2) matches the type part if present (e.g. :int)
+                pattern = path
+                casters = {}
                 
-                # Check if we already registered this dynamic pattern
+                # Find occurrences of {param_name} or {param_name:type}
+                markers = re.findall(r'{([^}]+)}', path)
+                for marker in markers:
+                    if ':' in marker:
+                        name, type_str = marker.split(':', 1)
+                    else:
+                        name, type_str = marker, 'str'
+                    
+                    regex_str, converter = TYPE_CASTERS.get(type_str, TYPE_CASTERS['str'])
+                    casters[name] = converter
+                    # Replace the marker with a named regex capture group
+                    pattern = pattern.replace(f"{{{marker}}}", f"(?P<{name}>{regex_str})")
+                
+                compiled_regex = re.compile(f"^{pattern}$")
+                
                 existing = None
                 for entry in self.dynamic_routes:
                     if entry['path_str'] == path:
@@ -24,12 +42,11 @@ class Router:
                         break
                 
                 if not existing:
-                    existing = {"regex": compiled_regex, "path_str": path, "methods": {}}
+                    existing = {"regex": compiled_regex, "path_str": path, "methods": {}, "casters": casters}
                     self.dynamic_routes.append(existing)
                 
                 existing["methods"][method.upper()] = func
             else:
-                # Fallback to standard static routing
                 if path not in self.routes:
                     self.routes[path] = {}
                 self.routes[path][method.upper()] = func
@@ -43,22 +60,23 @@ class Router:
     def delete(self, path): return self.route(path, "DELETE")
 
     def match(self, path, method):
-        """
-        Attempts to match an incoming path against static routes first, then dynamic paths.
-        Returns a tuple: (handler_function, path_parameters_dict)
-        """
         method = method.upper()
 
-        # 1. Try an exact static route match
         if path in self.routes and method in self.routes[path]:
             return self.routes[path][method], {}
 
-        # 2. Fall back to regex scanning for parameters
         for route_entry in self.dynamic_routes:
             match_obj = route_entry["regex"].match(path)
             if match_obj and method in route_entry["methods"]:
-                # extract named groups into a clean dictionary (e.g., {"id": "123"})
-                path_params = match_obj.groupdict()
-                return route_entry["methods"][method], path_params
+                raw_params = match_obj.groupdict()
+                # Apply explicit casting definitions
+                cast_params = {}
+                for name, val in raw_params.items():
+                    caster = route_entry["casters"].get(name, str)
+                    try:
+                        cast_params[name] = caster(val)
+                    except ValueError:
+                        cast_params[name] = val # Fallback on exception
+                return route_entry["methods"][method], cast_params
 
         return None, {}
