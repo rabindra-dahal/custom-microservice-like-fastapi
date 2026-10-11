@@ -1,5 +1,6 @@
 import json
 import inspect
+import asyncio
 from .routing import Router
 from .middleware import MiddlewareManager
 from .exceptions import ExceptionManager
@@ -11,6 +12,10 @@ class CustomMicroFramework:
         self._router = Router()
         self._middleware_manager = MiddlewareManager()
         self._exception_manager = ExceptionManager()
+        
+        # Track registered lifecycle callbacks
+        self._startup_handlers = []
+        self._shutdown_handlers = []
 
     @property
     def routes(self):
@@ -27,7 +32,50 @@ class CustomMicroFramework:
     def middleware(self): return self._middleware_manager.middleware()
     def exception_handler(self, exc_class): return self._exception_manager.exception_handler(exc_class)
 
+    def on_event(self, event_type: str):
+        """
+        Decorator to register startup and shutdown lifecycle hooks.
+        """
+        def decorator(func):
+            if event_type == "startup":
+                self._startup_handlers.append(func)
+            elif event_type == "shutdown":
+                self._shutdown_handlers.append(func)
+            return func
+        return decorator
+
     async def __call__(self, scope, receive, send):
+        # Handle ASGI Lifespan protocol events
+        if scope['type'] == 'lifespan':
+            while True:
+                message = await receive()
+                if message['type'] == 'lifespan.startup':
+                    try:
+                        # Fire all startup handlers sequentially
+                        for handler in self._startup_handlers:
+                            if inspect.iscoroutinefunction(handler):
+                                await handler()
+                            else:
+                                handler()
+                        await send({'type': 'lifespan.startup.complete'})
+                    except Exception as e:
+                        await send({'type': 'lifespan.startup.failed', 'message': str(e)})
+                        break
+                        
+                elif message['type'] == 'lifespan.shutdown':
+                    try:
+                        # Fire all shutdown handlers sequentially
+                        for handler in self._shutdown_handlers:
+                            if inspect.iscoroutinefunction(handler):
+                                await handler()
+                            else:
+                                handler()
+                        await send({'type': 'lifespan.shutdown.complete'})
+                    except Exception as e:
+                        await send({'type': 'lifespan.shutdown.failed', 'message': str(e)})
+                    break
+            return
+
         if scope['type'] != 'http':
             await send({'type': 'http.response.start', 'status': 200, 'headers': []})
             await send({'type': 'http.response.body', 'body': b''})
@@ -42,16 +90,11 @@ class CustomMicroFramework:
         await send({'type': 'http.response.body', 'body': response_bytes})
 
     async def _resolve_dependency(self, callable_obj):
-        """
-        Recursively resolves dependencies and sub-dependencies using reflection.
-        """
         sig = inspect.signature(callable_obj)
         dep_kwargs = {}
-        
         for param_name, param in sig.parameters.items():
             if isinstance(param.default, Depends):
                 nested_callable = param.default.dependency_callable
-                # Recurse downstream to catch nested dependencies
                 dep_kwargs[param_name] = await self._resolve_dependency(nested_callable)
         
         if inspect.iscoroutinefunction(callable_obj):
@@ -69,7 +112,6 @@ class CustomMicroFramework:
                 status = 200
                 content_type = b'text/html; charset=utf-8'
             else:
-                # 1. PARSE QUERY STRINGS
                 raw_query_bytes = scope.get('query_string', b'')
                 query_string = raw_query_bytes.decode('utf-8')
                 query_params = {}
@@ -79,7 +121,6 @@ class CustomMicroFramework:
                             key, value = pair.split('=')
                             query_params[key] = value
 
-                # 2. PARSE REQUEST BODIES
                 body_data = {}
                 if method in ("POST", "PUT"):
                     body_bytes = b""
@@ -94,19 +135,15 @@ class CustomMicroFramework:
                         except json.JSONDecodeError:
                             body_data = {"error": "Invalid JSON text received"}
 
-                # 3. ROUTE MATCHING (NOW WITH CASTED VALUES)
                 handler_function, path_params = self._router.match(path, method)
                 
                 if handler_function:
-                    # 4. RESOLVE TOP-LEVEL AND SUB-DEPENDENCIES
                     sig = inspect.signature(handler_function)
                     kwargs = {}
-                    
                     for param_name, param in sig.parameters.items():
                         if isinstance(param.default, Depends):
                             kwargs[param_name] = await self._resolve_dependency(param.default.dependency_callable)
 
-                    # 5. EXECUTE ENDPOINT
                     param_keys = list(sig.parameters.keys())
                     if len(param_keys) >= 3 and param_keys[0] == 'params' and param_keys[1] == 'body' and param_keys[2] == 'path_params':
                         if inspect.iscoroutinefunction(handler_function):
