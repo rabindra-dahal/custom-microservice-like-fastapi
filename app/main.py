@@ -1,65 +1,110 @@
 import uvicorn
 from .framework import CustomMicroFramework
-import asyncio # Standard library to allow us to simulate async delays
-import time # Standard library to measure performance of requests
-from .dependencies import Depends
-
+from .responses import JSONResponse, HTMLResponse, RedirectResponse
 
 app = CustomMicroFramework()
 
-# Simulated database state wrapper
-class ManagedDatabasePool:
-    def __init__(self):
-        self.connected = False
-        self.pool_size = 0
+# 1. Custom JSONResponse with Custom Headers and Status Code
+@app.get("/api/items")
+def get_custom_json(params, body, path_params):
+    return JSONResponse(
+        content={"items": ["Framework", "Engine", "Router"]},
+        status_code=201,
+        headers=[("X-Custom-Framework-Header", "Micro-Engine-v3")]
+    )
 
-    async def connect(self):
-        print("[Lifecycle] Opening connection pool cluster...")
-        await asyncio.sleep(0.1)  # Simulate network latency
-        self.connected = True
-        self.pool_size = 10
-        print("[Lifecycle] Database connection pool is READY.")
+# 2. HTMLResponse rendering direct template code
+@app.get("/welcome")
+def get_html_page(params, body, path_params):
+    template = """
+    <html>
+        <head><title>Micro Framework</title></head>
+        <body style="font-family: sans-serif; padding: 40px; background-color: #f4f6f9;">
+            <h1 style="color: #2c3e50;">Welcome to the Custom Layer!</h1>
+            <p>This page is natively rendered using <strong>HTMLResponse</strong>.</p>
+        </body>
+    </html>
+    """
+    return HTMLResponse(content=template)
 
-    async def disconnect(self):
-        print("[Lifecycle] Draining connection pool safely...")
-        await asyncio.sleep(0.1)
-        self.connected = False
-        self.pool_size = 0
-        print("[Lifecycle] Database disconnected cleanly.")
+# 3. RedirectResponse sending users elsewhere
+@app.get("/legacy-route")
+def old_route(params, body, path_params):
+    # Send a temporary redirect to the welcome page
+    return RedirectResponse(url="/welcome", status_code=307)
 
-# Single global resource reference
-db_resource = ManagedDatabasePool()
-
-# --- REGISTER LIFECYCLE EVENT HOOKS ---
-
-@app.on_event("startup")
-async def startup_event():
-    """Triggered by the ASGI server immediately upon application boot."""
-    await db_resource.connect()
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Triggered by the ASGI server when receiving SIGINT/termination signals."""
-    await db_resource.disconnect()
-
-# --- DEPENDENCY LAYER ---
-def get_db():
-    if not db_resource.connected:
-        raise RuntimeError("Database pool accessed before initialization!")
-    return db_resource
-
-# --- TEST ENDPOINT ---
-@app.get("/health")
-def health_check(params, body, path_params, db = Depends(get_db)):
-    """Validates the live status of the injected framework resource."""
-    return {
-        "status": "healthy",
-        "database_connected": db.connected,
-        "active_connections": db.pool_size
-    }
+# 4. Fallback backwards compatibility checking (returns raw dict)
+@app.get("/fallback")
+def standard_fallback(params, body, path_params):
+    return {"message": "Automatically wrapped inside a JSONResponse!"}
 
 if __name__ == "__main__":
     uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)
+
+
+
+# import uvicorn
+# from .framework import CustomMicroFramework
+# import asyncio # Standard library to allow us to simulate async delays
+# import time # Standard library to measure performance of requests
+# from .dependencies import Depends
+
+
+# app = CustomMicroFramework()
+
+# # Simulated database state wrapper
+# class ManagedDatabasePool:
+#     def __init__(self):
+#         self.connected = False
+#         self.pool_size = 0
+
+#     async def connect(self):
+#         print("[Lifecycle] Opening connection pool cluster...")
+#         await asyncio.sleep(0.1)  # Simulate network latency
+#         self.connected = True
+#         self.pool_size = 10
+#         print("[Lifecycle] Database connection pool is READY.")
+
+#     async def disconnect(self):
+#         print("[Lifecycle] Draining connection pool safely...")
+#         await asyncio.sleep(0.1)
+#         self.connected = False
+#         self.pool_size = 0
+#         print("[Lifecycle] Database disconnected cleanly.")
+
+# # Single global resource reference
+# db_resource = ManagedDatabasePool()
+
+# # --- REGISTER LIFECYCLE EVENT HOOKS ---
+
+# @app.on_event("startup")
+# async def startup_event():
+#     """Triggered by the ASGI server immediately upon application boot."""
+#     await db_resource.connect()
+
+# @app.on_event("shutdown")
+# async def shutdown_event():
+#     """Triggered by the ASGI server when receiving SIGINT/termination signals."""
+#     await db_resource.disconnect()
+
+# # --- DEPENDENCY LAYER ---
+# def get_db():
+#     if not db_resource.connected:
+#         raise RuntimeError("Database pool accessed before initialization!")
+#     return db_resource
+
+# # --- TEST ENDPOINT ---
+# @app.get("/health")
+# def health_check(params, body, path_params, db = Depends(get_db)):
+#     """Validates the live status of the injected framework resource."""
+#     return {
+#         "status": "healthy",
+#         "database_connected": db.connected,
+#         "active_connections": db.pool_size
+#     }
+
+# if __name__ == "__main__":
+#     uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)
 
 
 
