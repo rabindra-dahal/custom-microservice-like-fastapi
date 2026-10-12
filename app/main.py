@@ -4,6 +4,10 @@ from .framework import CustomMicroFramework
 from .utils.dependencies import Depends
 from .utils.responses import JSONResponse, HTMLResponse, RedirectResponse
 
+from .utils.validation import QueryField
+from .utils.exceptions import QueryValidationError
+
+
 # Instantiate the centralized framework application coordinator
 app = CustomMicroFramework()
 
@@ -112,6 +116,18 @@ async def process_telemetry_headers(scope, call_next):
 # 🛣️ ROUTE DEFINITIONS & API ENDPOINTS
 # ==============================================================================
 
+# Standard index root directory path mapping
+@app.get("/")
+async def index_root():
+    """
+    Primary API gateway entry point.
+    """
+    return {
+        "framework": "CustomMicroFramework",
+        "version": "3.0.0",
+        "status": "online"
+    }
+
 # 1. Verification of Recursive Sub-Dependency Processing
 @app.get("/secure/dashboard")
 async def secure_dashboard(current_user = Depends(get_current_user)):
@@ -195,6 +211,36 @@ async def welcome_page():
 async def legacy_redirect():
     """Sends temporary relocation status tags to seamlessly reroute incoming clients."""
     return RedirectResponse(url="/welcome", status_code=307)
+
+# Global Exception handler catching QueryValidation errors cleanly
+@app.exception_handler(QueryValidationError)
+def handle_query_validation_failures(exc):
+    return 422, {"status": "Validation Failed", "errors": exc.errors}
+
+# Verification Endpoint enforcing multiple rule sets
+@app.get("/search")
+async def validation_search(
+    q: str = QueryField(required=True),
+    limit: int = QueryField(default=10, min_val=1, max_val=100),
+    premium: bool = QueryField(default=False)
+):
+    """
+    Enforces validation constraints directly via Python type annotations and rules.
+    """
+    return {
+        "status": "success",
+        "parsed_parameters": {
+            "query_string": q,
+            "limit": limit,
+            "premium_flag": premium,
+            "debug_types": {
+                "limit_type": str(type(limit)),
+                "premium_type": str(type(premium))
+            }
+        }
+    }
+
+
 
 
 # ==============================================================================

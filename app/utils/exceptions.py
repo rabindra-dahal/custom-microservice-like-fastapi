@@ -30,3 +30,10 @@ class ExceptionManager:
                 return handler(exception_instance)
                 
         return None
+
+class QueryValidationError(Exception):
+    """Raised when query parameters fail validation schemas."""
+    def __init__(self, errors: list):
+        self.errors = errors
+        super().__init__(str(errors))
+
