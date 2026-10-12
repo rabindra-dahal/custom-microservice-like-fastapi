@@ -6,13 +6,14 @@ from ..utils.dependencies import Depends
 from ..utils.validation import QueryValidator, QueryField
 from ..utils.exceptions import QueryValidationError
 from ..utils.background import BackgroundTasks
+from ..utils.body_validation import BaseModel
 
 class HttpPipelineProcessor:
     """
     The main coordinator for processing an HTTP request.
-    Handles route matching, request parsing, input parameter validation,
-    recursive dependency resolution, endpoint execution, exception normalization, 
-    and non-blocking background task extraction.
+    Handles route matching, request parsing, input query validation, 
+    declarative request body validation schemas, recursive dependency resolution, 
+    endpoint execution, exception normalization, and non-blocking background task extraction.
     """
 
     def __init__(self, router, injector, exception_manager, routes_accessor):
@@ -48,7 +49,7 @@ class HttpPipelineProcessor:
                 if handler_function:
                     sig = inspect.signature(handler_function)
                     
-                    # 1. SCAN AND COMPILE VALIDATION SCHEMAS
+                    # 1. SCAN AND COMPILE VALIDATION SCHEMAS FOR QUERY STRINGS
                     schema = {}
                     annotations = {}
                     for param_name, param in sig.parameters.items():
@@ -63,15 +64,27 @@ class HttpPipelineProcessor:
                         if errors:
                             raise QueryValidationError(errors)
 
-                    # 3. RESOLVE DEPENDENCIES & INJECT BACKGROUND TASKS CONTAINER
+                    # 3. RESOLVE DEPENDENCIES & INJECT BACKGROUND TASKS / REQUEST BODY SCHEMAS
                     kwargs = {}
                     for param_name, param in sig.parameters.items():
-                        # Explicit check for BackgroundTasks annotation request
-                        if param.annotation == BackgroundTasks:
+                        # A. Check if parameter annotation type requests a Custom Request Body Schema Model contract
+                        if isinstance(param.annotation, type) and issubclass(param.annotation, BaseModel):
+                            validated_body_instance, body_errors = param.annotation.validate_dict(body_data)
+                            if body_errors:
+                                # Standardize using our validation catcher exception to return 422 errors
+                                raise QueryValidationError(body_errors)
+                            kwargs[param_name] = validated_body_instance
+                            
+                        # B. Explicit check for BackgroundTasks annotation request
+                        elif param.annotation == BackgroundTasks:
                             background_tasks = BackgroundTasks()
                             kwargs[param_name] = background_tasks
+                            
+                        # C. Resolve inversion-of-control targets marked via Depends definitions
                         elif isinstance(param.default, Depends):
                             kwargs[param_name] = await self._injector.resolve(param.default.dependency_callable)
+                            
+                        # D. Map cleanly validated query string scalars
                         elif param_name in validated_query_params:
                             kwargs[param_name] = validated_query_params[param_name]
 
@@ -84,7 +97,7 @@ class HttpPipelineProcessor:
                         else:
                             raw_response = handler_function(raw_query_params, body_data, path_params, **kwargs)
                     else:
-                        # Modern declarative signature layout (relies exclusively on dependency extraction)
+                        # Modern declarative signature layout (relies exclusively on type/dependency injection parameters)
                         if inspect.iscoroutinefunction(handler_function):
                             raw_response = await handler_function(**kwargs)
                         else:
@@ -111,7 +124,7 @@ class HttpPipelineProcessor:
                 err_status, err_payload = handled_res
                 response_obj = JSONResponse(content=err_payload, status_code=err_status)
             else:
-                # Catch-all safety net for unhandled code errors
+                # Catch-all safety net for unhandled execution code errors
                 response_obj = JSONResponse(
                     content={"error": "Internal Server Error", "details": str(bug)}, 
                     status_code=500
