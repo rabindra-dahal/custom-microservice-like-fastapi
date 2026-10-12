@@ -37,3 +37,8 @@ class QueryValidationError(Exception):
         self.errors = errors
         super().__init__(str(errors))
 
+class BodyValidationError(Exception):
+    """Raised when request payload bodies fail structural model contracts."""
+    def __init__(self, errors: list):
+        self.errors = errors
+        super().__init__(str(errors))

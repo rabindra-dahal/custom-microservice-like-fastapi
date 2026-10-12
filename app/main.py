@@ -11,6 +11,8 @@ import os
 from .utils.responses import FileResponse
 # Import the standalone router group module we just created
 from .routers import items
+from .utils.body_validation import BaseModel, Field
+
 
 
 # Setup a simulated tracking log file structure
@@ -144,6 +146,38 @@ async def index_root():
         "framework": "CustomMicroFramework",
         "version": "3.0.0",
         "status": "online"
+    }
+
+
+# 1. Define sub-structural nested entity layer contract
+class DimensionsSchema(BaseModel):
+    width: float
+    height: float
+
+# 2. Define top-level payload schema configuration
+class InventoryItemContract(BaseModel):
+    name: str
+    sku: str = Field(data_type=str, required=True)
+    stock: int = Field(data_type=int, required=False, default=0)
+    dimensions: DimensionsSchema  # Deep nested validation mapping out-of-the-box!
+
+# 3. Target Verification Endpoint accepting structural annotations
+@app.post("/api/v1/warehouse/items")
+async def create_secure_item(payload: InventoryItemContract):
+    """
+    Creates an item after enforcing explicit type checking across deep nested JSON attributes.
+    """
+    return {
+        "status": "validated",
+        "processed_payload": {
+            "name": payload.name,
+            "sku": payload.sku,
+            "stock_count": payload.stock,
+            "nested_dimensions": {
+                "w": payload.dimensions.width,
+                "h": payload.dimensions.height
+            }
+        }
     }
 
 
