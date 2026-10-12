@@ -79,8 +79,9 @@ class CustomMicroFramework:
             await send({'type': 'http.response.body', 'body': b''})
             return
 
-        # 3. Pass request down the middleware chain to be processed by the HTTP pipeline
-        status, headers, response_bytes = await self._middleware_manager.execute_chain(
+        # 3. Process Execution Pipeline through Middleware Chain and Pipeline Processor
+        # Captures the 4-element tuple containing background tasks emitted by the processor block
+        status, headers, response_bytes, background_tasks = await self._middleware_manager.execute_chain(
             scope, 
             lambda current_scope: self._pipeline.execute(current_scope, receive)
         )
@@ -88,3 +89,7 @@ class CustomMicroFramework:
         # 4. Stream response headers and body payload back to the client via ASGI server channels
         await send({'type': 'http.response.start', 'status': status, 'headers': headers})
         await send({'type': 'http.response.body', 'body': response_bytes})
+
+        # 5. POST-RESPONSE EXECUTION PHASE: Trigger background workers safely after network write completes
+        if background_tasks:
+            await background_tasks.execute_all()

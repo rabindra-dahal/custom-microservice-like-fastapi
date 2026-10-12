@@ -6,6 +6,8 @@ from .utils.responses import JSONResponse, HTMLResponse, RedirectResponse
 
 from .utils.validation import QueryField
 from .utils.exceptions import QueryValidationError
+from .utils.background import BackgroundTasks
+
 
 
 # Instantiate the centralized framework application coordinator
@@ -127,6 +129,26 @@ async def index_root():
         "version": "3.0.0",
         "status": "online"
     }
+
+
+# Simulated worker task
+async def async_log_processor(email: str, message: str):
+    print(f"[Worker] Starting heavy task for {email}...")
+    await asyncio.sleep(3.0)  # Simulate a 3-second runtime block
+    print(f"[Worker] Heavy task complete. Logged: '{message}'")
+
+@app.post("/submit-task")
+async def register_background_job(background_tasks: BackgroundTasks):
+    """
+    Schedules an intensive async routine to execute outside the main HTTP request loop.
+    """
+    background_tasks.add_task(async_log_processor, "dev@example.np", "Telemetry batch captured successfully.")
+    
+    return {
+        "status": "accepted",
+        "message": "Response sent instantly! Heavy operations deferred to background worker."
+    }
+
 
 # 1. Verification of Recursive Sub-Dependency Processing
 @app.get("/secure/dashboard")
