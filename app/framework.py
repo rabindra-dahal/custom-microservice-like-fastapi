@@ -1,9 +1,19 @@
+import inspect
+from typing import TYPE_CHECKING
+
+# Import core management engines and orchestrators
 from .utils.routing import Router
 from .utils.middleware import MiddlewareManager
 from .utils.exceptions import ExceptionManager
 from .core.injector import DependencyInjector
 from .core.lifespan import LifespanManager
 from .core.pipeline import HttpPipelineProcessor
+
+# --- STATIC TYPE CHECKING GUARD ---
+# This block is only visible to Pylance/Mypy during static analysis.
+# It prevents runtime circular import loops between the framework and router utilities.
+if TYPE_CHECKING:
+    from .utils.router_group import APIRouter
 
 class CustomMicroFramework:
     """
