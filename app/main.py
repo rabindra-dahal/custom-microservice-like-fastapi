@@ -9,6 +9,9 @@ from .utils.exceptions import QueryValidationError
 from .utils.background import BackgroundTasks
 import os
 from .utils.responses import FileResponse
+# Import the standalone router group module we just created
+from .routers import items
+
 
 # Setup a simulated tracking log file structure
 LOG_PATH = "system_diagnostic_output.log"
@@ -17,6 +20,8 @@ LOG_PATH = "system_diagnostic_output.log"
 
 # Instantiate the centralized framework application coordinator
 app = CustomMicroFramework()
+# Register the blueprint group into the engine!
+app.include_router(items.router)
 
 # ==============================================================================
 # 🏢 LIFESPAN STATE & RESOURCE MANAGEMENT
