@@ -1,6 +1,10 @@
 import json
 
 class Response:
+    """
+    Base HTTP response object. Handles compiling custom headers and 
+    encoding text bodies into raw byte responses.
+    """
     def __init__(self, content: any = None, status_code: int = 200, headers: list = None):
         self.content = content
         self.status_code = status_code
@@ -8,6 +12,7 @@ class Response:
         self.media_type = None
         
     def render(self) -> bytes:
+        """Encodes content payload into bytes."""
         if self.content is None:
             return b""
         if isinstance(self.content, bytes):
@@ -15,7 +20,7 @@ class Response:
         return str(self.content).encode("utf-8")
 
     def get_headers(self) -> list:
-        # Build out headers array matching ASGI byte-pair formats
+        """Formates and outputs an array of standard ASGI-compliant header byte pairs."""
         raw_headers = []
         has_content_type = False
         
@@ -32,6 +37,7 @@ class Response:
 
 
 class JSONResponse(Response):
+    """Encodes dictionaries and arrays into pure application/json text bytes."""
     def __init__(self, content: any, status_code: int = 200, headers: list = None):
         super().__init__(content, status_code, headers)
         self.media_type = "application/json"
@@ -41,12 +47,14 @@ class JSONResponse(Response):
 
 
 class HTMLResponse(Response):
+    """Renders raw HTML web interface page files directly to the browser client."""
     def __init__(self, content: str, status_code: int = 200, headers: list = None):
         super().__init__(content, status_code, headers)
         self.media_type = "text/html; charset=utf-8"
 
 
 class RedirectResponse(Response):
+    """Sends temporary or permanent HTTP location redirection codes to user clients."""
     def __init__(self, url: str, status_code: int = 307, headers: list = None):
         headers = headers or []
         headers.append(("Location", url))
