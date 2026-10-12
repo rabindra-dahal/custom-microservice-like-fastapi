@@ -117,5 +117,5 @@ class HttpPipelineProcessor:
                     status_code=500
                 )
 
-        # Return the expanded 4-element response tuple layout up the chain
-        return response_obj.status_code, response_obj.get_headers(), response_obj.render(), background_tasks
+        # Return the expanded 5-element response tuple layout up the chain to the application gateway
+        return response_obj.status_code, response_obj.get_headers(), response_obj.render(), background_tasks, response_obj

@@ -20,14 +20,12 @@ class MiddlewareManager:
         Executes middleware layers sequentially before passing the request 
         down to the main handler.
         """
-        # Create an execution layer that ends by running the core route handler
         async def call_next(current_scope):
+            # Transparently returns whatever the core pipeline generates
             return await core_pipeline_callable(current_scope)
 
-        # Wrap handlers around each other from the outside in
         handler = call_next
         for mw in reversed(self.middlewares):
-            # Create a closure capturing the current middleware state level
             def make_layer(current_mw, next_handler):
                 async def layer(s):
                     if inspect.iscoroutinefunction(current_mw):
@@ -36,4 +34,5 @@ class MiddlewareManager:
                 return layer
             handler = make_layer(mw, handler)
 
+        # Returns the full tuple directly up to framework.py
         return await handler(scope)

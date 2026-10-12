@@ -7,6 +7,11 @@ from .utils.responses import JSONResponse, HTMLResponse, RedirectResponse
 from .utils.validation import QueryField
 from .utils.exceptions import QueryValidationError
 from .utils.background import BackgroundTasks
+import os
+from .utils.responses import FileResponse
+
+# Setup a simulated tracking log file structure
+LOG_PATH = "system_diagnostic_output.log"
 
 
 
@@ -102,16 +107,22 @@ def handle_item_not_found(exc):
 async def process_telemetry_headers(scope, call_next):
     """
     Intercepts the incoming request context, records telemetry attributes,
-    and injects diagnostic headers into the outgoing structural payload.
+    and dynamically appends headers to any shaped pipeline tuple layout.
     """
     print(f"[Middleware] Intercepted path connection: {scope['path']}")
     
-    # Forward control to the next element inside the chain pipeline
-    status, headers, response_bytes = await call_next(scope)
+    # 1. Capture the tuple dynamically without hardcoded structural unpacking limits
+    pipeline_result = await call_next(scope)
     
-    # Append a custom tracking signature tracking header to the output list
+    # 2. Safely extract status and headers from the front of the tuple
+    status = pipeline_result[0]
+    headers = pipeline_result[1]
+    
+    # 3. Append your telemetry signature tracking header
     headers.append((b"x-framework-telemetry", b"Active-Engine-v3"))
-    return status, headers, response_bytes
+    
+    # 4. Rebuild the tuple dynamically to keep background tasks and response objects intact
+    return (status, headers) + pipeline_result[2:]
 
 
 # ==============================================================================
@@ -148,6 +159,31 @@ async def register_background_job(background_tasks: BackgroundTasks):
         "status": "accepted",
         "message": "Response sent instantly! Heavy operations deferred to background worker."
     }
+
+
+
+@app.on_event("startup")
+def create_dummy_log_asset():
+    """Generates a dummy text asset on boot to test file streaming."""
+    with open(LOG_PATH, "w") as f:
+        # Populate with repeated data lines to build a mock log asset
+        for i in range(5000):
+            f.write(f"[{i:04d}] - TELEMETRY FRAME WORKLOAD DIAGNOSTIC BROADCAST CAPTURE LINE DATA STATUS OK\n")
+
+@app.on_event("shutdown")
+def cleanup_dummy_log_asset():
+    """Cleans up the dummy asset from the workspace on shutdown."""
+    if os.path.exists(LOG_PATH):
+        os.remove(LOG_PATH)
+
+# Verification Endpoint serving physical media blocks
+@app.get("/download/logs")
+async def fetch_large_log_file():
+    """
+    Streams the simulated logs off disk using native FileResponse chunking.
+    """
+    return FileResponse(path=LOG_PATH)
+
 
 
 # 1. Verification of Recursive Sub-Dependency Processing
