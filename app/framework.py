@@ -9,18 +9,18 @@ class CustomMicroFramework:
     """
     The central coordinator and primary gateway interface for our framework.
     Implements the standard ASGI call specification to orchestrate life-cycle,
-    routing, middleware, and dependency injection operations.
+    routing, middleware, validation, background tasks, and streaming operations.
     """
 
     def __init__(self):
-        # Initialize supporting managers and core engines
+        # Initialize supporting managers and core execution engines
         self._router = Router()
         self._middleware_manager = MiddlewareManager()
         self._exception_manager = ExceptionManager()
         self._injector = DependencyInjector()
         self._lifespan_manager = LifespanManager()
         
-        # Instantiate the HTTP Processing Pipeline with references to its dependencies
+        # Instantiate the HTTP Processing Pipeline with references to its core subsystems
         self._pipeline = HttpPipelineProcessor(
             router=self._router,
             injector=self._injector,
@@ -32,14 +32,27 @@ class CustomMicroFramework:
     def routes(self):
         """
         Combines static and dynamic path definitions into a single dictionary representation.
-        Enables structural inspection by utilities like the DocumentationManager.
+        Enables structural inspection by utilities like the DocumentationManager dashboard.
         """
         merged = dict(self._router.routes)
         for entry in self._router.dynamic_routes:
             merged[entry["path_str"]] = entry["methods"]
         return merged
 
-    # --- ROUTER DECORATOR SHORTCUTS ---
+    def include_router(self, router_group: "APIRouter"):
+        """
+        Unpacks a modular APIRouter group registry and transfers all its underlying
+        endpoints directly into the framework's core runtime router.
+        """
+        for route_entry in router_group.routes:
+            path = route_entry["path"]
+            method = route_entry["method"]
+            handler = route_entry["handler"]
+            
+            # Re-apply our existing core decorator logic to register the endpoint cleanly
+            self._router.route(path, method)(handler)
+
+    # --- CORE ROUTER DECORATOR SHORTCUTS ---
     def route(self, path, method="GET"): return self._router.route(path, method)
     def get(self, path): return self._router.get(path)
     def post(self, path): return self._router.post(path)
@@ -66,7 +79,7 @@ class CustomMicroFramework:
     async def __call__(self, scope, receive, send):
         """
         Primary entry point for ASGI server communication (e.g., Uvicorn).
-        Routes messages based on their incoming event protocol scope.
+        Routes incoming messages based on their event protocol scope.
         """
         # 1. Route ASGI Lifespan Events (boot/shutdown) to LifespanManager
         if scope['type'] == 'lifespan':
@@ -80,13 +93,13 @@ class CustomMicroFramework:
             return
 
         # 3. Process Execution Pipeline through Middleware Chain and Pipeline Processor
-        # Captures the 5-element tuple containing background tasks and the actual response instance
+        # Captures the 5-element tuple containing status, headers, body bytes, background tasks, and response objects
         status, headers, response_bytes, background_tasks, response_obj = await self._middleware_manager.execute_chain(
             scope, 
             lambda current_scope: self._pipeline.execute(current_scope, receive)
         )
 
-        # 4. Stream response headers back to the client via ASGI server channels
+        # 4. Stream response headers frame back to the client via ASGI server channels
         await send({'type': 'http.response.start', 'status': status, 'headers': headers})
 
         # 5. DYNAMIC RESPONSE TRANSMISSION PIPELINE
@@ -99,14 +112,14 @@ class CustomMicroFramework:
                     'body': file_chunk,
                     'more_body': True  # Informs ASGI server that more chunks are following
                 })
-            # Emit empty terminal frame to close the active connection socket
+            # Emit empty terminal frame to close the active connection socket stream
             await send({
                 'type': 'http.response.body',
                 'body': b'',
                 'more_body': False
             })
         else:
-            # Emit the full raw pre-rendered response byte chunk instantly
+            # Emit the full raw pre-rendered response byte chunk instantly for typical web responses
             await send({
                 'type': 'http.response.body',
                 'body': response_bytes,
