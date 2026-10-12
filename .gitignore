@@ -6,6 +6,8 @@ __pycache__/
 *.env
 *.db
 .db
+system_diagnostic_output.log
+./system_diagnostic_output.log
 
 # C extensions
 *.so

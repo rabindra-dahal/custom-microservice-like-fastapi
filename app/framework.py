@@ -80,16 +80,39 @@ class CustomMicroFramework:
             return
 
         # 3. Process Execution Pipeline through Middleware Chain and Pipeline Processor
-        # Captures the 4-element tuple containing background tasks emitted by the processor block
-        status, headers, response_bytes, background_tasks = await self._middleware_manager.execute_chain(
+        # Captures the 5-element tuple containing background tasks and the actual response instance
+        status, headers, response_bytes, background_tasks, response_obj = await self._middleware_manager.execute_chain(
             scope, 
             lambda current_scope: self._pipeline.execute(current_scope, receive)
         )
 
-        # 4. Stream response headers and body payload back to the client via ASGI server channels
+        # 4. Stream response headers back to the client via ASGI server channels
         await send({'type': 'http.response.start', 'status': status, 'headers': headers})
-        await send({'type': 'http.response.body', 'body': response_bytes})
 
-        # 5. POST-RESPONSE EXECUTION PHASE: Trigger background workers safely after network write completes
+        # 5. DYNAMIC RESPONSE TRANSMISSION PIPELINE
+        from .utils.responses import FileResponse
+        if isinstance(response_obj, FileResponse):
+            # Asynchronously stream the resource file off the disk block-by-block
+            async for file_chunk in response_obj.stream_chunks():
+                await send({
+                    'type': 'http.response.body',
+                    'body': file_chunk,
+                    'more_body': True  # Informs ASGI server that more chunks are following
+                })
+            # Emit empty terminal frame to close the active connection socket
+            await send({
+                'type': 'http.response.body',
+                'body': b'',
+                'more_body': False
+            })
+        else:
+            # Emit the full raw pre-rendered response byte chunk instantly
+            await send({
+                'type': 'http.response.body',
+                'body': response_bytes,
+                'more_body': False
+            })
+
+        # 6. POST-RESPONSE EXECUTION PHASE: Trigger deferred background workers safely after network write completes
         if background_tasks:
             await background_tasks.execute_all()
