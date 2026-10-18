@@ -8,7 +8,7 @@ This project was built to demystify the internal magic of modern enterprise fram
 
 ## 🏎️ Performance Metrics
 
-Because this architecture bypasses monolithic middleware stacks and handles I/O operations asynchronously via an optimized linear pipeline, it delivers exceptionally high throughput metrics under identical hardware conditions (tested with standard I/O-bound JSON serialization and keep-alive optimization):
+Because this architecture bypasses monolithic middleware stacks and handles I/O operations asynchronously via an optimized linear pipeline, it delivers exceptionally high throughput metrics under identical hardware conditions (tested with standard I/O-bound JSON serialization and keep-alive optimizations):
 
 ### 📊 Benchmark Summary
 
